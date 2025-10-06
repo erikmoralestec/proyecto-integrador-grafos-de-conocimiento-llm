@@ -1,0 +1,565 @@
+MATCH p = (n)-[e]-(m)
+WHERE n.community IS NOT NULL AND m.community = n.community
+RETURN p
+LIMIT 150;
+
+// Dibuja paths dentro de una comunidad grande
+MATCH p = (n)-[e]-(m)
+WHERE n.community IS NOT NULL AND m.community = n.community
+AND n.community = 0   // cámbialo por el número de comunidad que quieras
+RETURN p
+LIMIT 200;
+
+MATCH (n)-[e]-(m)
+WHERE n.community IS NOT NULL 
+  AND m.community = n.community
+WITH n.community AS comm, n, m, e
+LIMIT 150
+RETURN n, m, e;
+
+MATCH (n)
+WHERE n.community IS NOT NULL
+WITH n.community AS comm, count(*) AS size
+ORDER BY size DESC
+LIMIT 1
+RETURN comm, size;
+
+// Elige una comunidad “grande”
+MATCH (n) WHERE exists(n.community)
+WITH n.community AS comm, count(*) AS size
+ORDER BY size DESC
+LIMIT 1
+
+// Dibuja un subgrafo de esa comunidad
+MATCH p = (a)-[e]-(b)
+WHERE exists(a.community) AND exists(b.community)
+  AND a.community = comm AND b.community = comm
+RETURN p
+LIMIT 150;
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CALL gds.louvain.write('veh_recall_comp', { writeProperty: 'community' })
+YIELD communityCount, modularity;
+
+// Grado de componentes (centralidad estructural)
+CALL gds.degree.stream('veh_recall_comp')
+YIELD nodeId, score
+WITH gds.util.asNode(nodeId) AS n, score
+WHERE 'Component' IN labels(n)
+RETURN n.name AS component, score AS degree
+ORDER BY degree DESC LIMIT 20;
+
+CALL gds.louvain.write('veh_recall_comp', { writeProperty: 'community' })
+YIELD communityCount, modularity;
+
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+	AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+	CONCERNS:	{type:'CONCERNS',	orientation:'UNDIRECTED'}
+  }
+);
+
+// Grado de componentes (centralidad estructural)
+CALL gds.degree.stream('veh_recall_comp')
+YIELD nodeId, score
+WITH gds.util.asNode(nodeId) AS n, score
+WHERE 'Component' IN labels(n)
+RETURN n.name AS component, score AS degree
+ORDER BY degree DESC LIMIT 20;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+MATCH (v:Vehicle {make:'TOYOTA'})-[:AFFECTED_BY]->(r:Recall)
+WITH r
+ORDER BY r.date DESC
+LIMIT 15
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r)-[:CONCERNS]->(c:Component)
+RETURN v, r, c;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+WHERE v.make IN ['TOYOTA','FORD','HONDA']
+WITH r
+ORDER BY r.date DESC
+LIMIT 30
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r)-[:CONCERNS]->(c:Component)
+RETURN v, r, c;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v
+LIMIT 10;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+MATCH (v:Vehicle)  RETURN count(v) AS vehicles;
+MATCH (r:Recall)   RETURN count(r) AS recalls;
+MATCH (c:Component)RETURN count(c) AS components;
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+MATCH (v:Vehicle)  RETURN count(v) AS vehicles;
+MATCH (r:Recall)   RETURN count(r) AS recalls;
+MATCH (c:Component)RETURN count(c) AS components;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+MATCH (v:Vehicle)   RETURN count(v) AS vehicles;
+MATCH (r:Recall)    RETURN count(r) AS recalls;
+MATCH (c:Component) RETURN count(c) AS components;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+:use neo4j
+SHOW DATABASES;
+
+MATCH (v:Vehicle)   RETURN count(v) AS vehicles;
+MATCH (r:Recall)    RETURN count(r) AS recalls;
+MATCH (c:Component) RETURN count(c) AS components;
+
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+// Ingesta de recalls (Neo4j 5+): sin ; dentro del bloque
+CALL {
+  WITH 'file:///recalls_neo4j_ready.csv' AS url
+  LOAD CSV WITH HEADERS FROM url AS row
+
+  WITH
+    row,
+    toInteger(row.year) AS y,
+    CASE WHEN row.recall_date IS NOT NULL AND row.recall_date <> '' THEN date(row.recall_date) END AS rdate,
+    toUpper(trim(row.make_norm))  AS mk,
+    toUpper(trim(row.model_norm)) AS mdl,
+    toUpper(trim(row.component_norm)) AS comp_name,
+    toUpper(trim(row.comp_l1)) AS l1,
+    toUpper(trim(row.comp_l2)) AS l2,
+    toUpper(trim(row.comp_l3)) AS l3,
+    CASE WHEN coalesce(row.comp_detail,'') <> '' THEN row.comp_detail END AS cdetail
+
+  // Vehicle
+  MERGE (v:Vehicle { make: mk, model: mdl, year: y })
+
+  // Component
+  MERGE (c:Component { name: comp_name })
+    ON CREATE SET
+      c.comp_l1 = l1,
+      c.comp_l2 = l2,
+      c.comp_l3 = l3,
+      c.detail  = cdetail
+    ON MATCH SET
+      c.comp_l1 = coalesce(c.comp_l1, l1),
+      c.comp_l2 = coalesce(c.comp_l2, l2),
+      c.comp_l3 = coalesce(c.comp_l3, l3),
+      c.detail  = coalesce(c.detail,  cdetail)
+
+  // Recall
+  MERGE (r:Recall { campaign_no: row.campaign_no })
+    ON CREATE SET r.date = rdate
+    ON MATCH  SET r.date = coalesce(r.date, rdate)
+
+  // Relaciones
+  MERGE (v)-[:AFFECTED_BY]->(r)
+  MERGE (r)-[:CONCERNS]->(c)
+} IN TRANSACTIONS OF 1000 ROWS;
+
+// Carga de recalls en lotes (Neo4j 5+)
+CALL {
+  LOAD CSV WITH HEADERS FROM 'file:///recalls_neo4j_ready.csv' AS row
+
+  WITH
+    row,
+    toInteger(row.year) AS y,
+    CASE WHEN row.recall_date IS NOT NULL AND row.recall_date <> '' 
+         THEN date(row.recall_date) END AS rdate,
+    toUpper(trim(row.make_norm)) AS mk,
+    toUpper(trim(row.model_norm)) AS mdl,
+    toUpper(trim(row.component_norm)) AS comp_name,
+    toUpper(trim(row.comp_l1)) AS l1,
+    toUpper(trim(row.comp_l2)) AS l2,
+    toUpper(trim(row.comp_l3)) AS l3,
+    CASE WHEN row.comp_detail IS NOT NULL THEN trim(row.comp_detail) END AS cdetail
+
+  // Vehicle
+  MERGE (v:Vehicle { make: mk, model: mdl, year: y })
+
+  // Component
+  MERGE (c:Component { name: comp_name })
+  ON CREATE SET
+    c.comp_l1 = l1,
+    c.comp_l2 = l2,
+    c.comp_l3 = l3,
+    c.detail  = cdetail
+  ON MATCH SET
+    c.comp_l1 = coalesce(c.comp_l1, l1),
+    c.comp_l2 = coalesce(c.comp_l2, l2),
+    c.comp_l3 = coalesce(c.comp_l3, l3),
+    c.detail  = coalesce(c.detail, cdetail)
+
+  // Recall
+  MERGE (r:Recall { campaign_no: row.campaign_no })
+  ON CREATE SET
+    r.date = rdate
+  ON MATCH SET
+    r.date = coalesce(r.date, rdate)
+
+  // Relaciones
+  MERGE (v)-[:AFFECTED_BY]->(r)
+  MERGE (r)-[:CONCERNS]->(c);
+} IN TRANSACTIONS OF 1000 ROWS;
+
+// === Carga de RECALLS ===
+// Requiere que el archivo esté en la carpeta "import" de la instancia.
+USING PERIODIC COMMIT 1000
+LOAD CSV WITH HEADERS FROM 'file:///recalls_neo4j_ready.csv' AS row
+
+WITH
+  row,
+  // Parseos seguros
+  toInteger(row.year)          AS y,
+  CASE WHEN row.recall_date IS NOT NULL AND row.recall_date <> '' THEN date(row.recall_date) END AS rdate,
+  toUpper(trim(row.make_norm)) AS mk,
+  toUpper(trim(row.model_norm)) AS mdl,
+  toUpper(trim(row.component_norm)) AS comp_name,
+  // Jerarquía de componentes (pueden venir vacíos)
+  toUpper(trim(row.comp_l1))   AS l1,
+  toUpper(trim(row.comp_l2))   AS l2,
+  toUpper(trim(row.comp_l3))   AS l3,
+  CASE WHEN row.comp_detail IS NOT NULL THEN trim(row.comp_detail) END AS cdetail
+
+// Vehicle cohort (cohorte por make-model-year)
+MERGE (v:Vehicle { make: mk, model: mdl, year: y })
+
+// Component (canon/familia)
+MERGE (c:Component { name: comp_name })
+ON CREATE SET
+  c.comp_l1 = l1,
+  c.comp_l2 = l2,
+  c.comp_l3 = l3
+ON MATCH SET
+  // no sobreescribas si ya existe algo más específico; conserva el primero no vacío
+  c.comp_l1 = coalesce(c.comp_l1, l1),
+  c.comp_l2 = coalesce(c.comp_l2, l2),
+  c.comp_l3 = coalesce(c.comp_l3, l3);
+
+// Guarda detalle textual auxiliar (sin afectar unicidad)
+SET c.detail = coalesce(c.detail, cdetail)
+
+// Recall node
+MERGE (r:Recall { campaign_no: row.campaign_no })
+ON CREATE SET
+  r.date        = rdate,
+  r.subject     = coalesce(r.subject, null),     // (si luego agregas subject desde otro CSV)
+  r.consequence = coalesce(r.consequence, null)  // (si luego agregas consequence)
+ON MATCH SET
+  // Solo completa si está vacío
+  r.date = coalesce(r.date, rdate);
+
+// Relaciones
+MERGE (v)-[:AFFECTED_BY]->(r)
+MERGE (r)-[:CONCERNS]->(c);
+
+// (opcional) Verifica base activa
+// :use GrafoRecalls
+
+// --- Limpieza opcional si vas a reimportar desde cero ---
+// MATCH (n) DETACH DELETE n;
+
+// --- Restricciones de unicidad (también crean índices) ---
+CREATE CONSTRAINT vehicle_unique IF NOT EXISTS
+FOR (v:Vehicle) REQUIRE (v.make, v.model, v.year) IS UNIQUE;
+
+CREATE CONSTRAINT component_unique IF NOT EXISTS
+FOR (c:Component) REQUIRE c.name IS UNIQUE;
+
+CREATE CONSTRAINT recall_unique IF NOT EXISTS
+FOR (r:Recall) REQUIRE r.campaign_no IS UNIQUE;
+
+// --- Índices de apoyo para lectura/filtrado ---
+CREATE INDEX vehicle_make IF NOT EXISTS FOR (v:Vehicle) ON (v.make);
+CREATE INDEX vehicle_model IF NOT EXISTS FOR (v:Vehicle) ON (v.model);
+CREATE INDEX vehicle_year  IF NOT EXISTS FOR (v:Vehicle) ON (v.year);
+
+CREATE INDEX component_name IF NOT EXISTS FOR (c:Component) ON (c.name);
+
+CREATE INDEX recall_date   IF NOT EXISTS FOR (r:Recall)   ON (r.date);
+
+// (opcional) Verifica base activa
+// :use GrafoRecalls
+
+// --- Limpieza opcional si vas a reimportar desde cero ---
+// MATCH (n) DETACH DELETE n;
+
+// --- Restricciones de unicidad (también crean índices) ---
+CREATE CONSTRAINT vehicle_unique IF NOT EXISTS
+FOR (v:Vehicle) REQUIRE (v.make, v.model, v.year) IS UNIQUE;
+
+CREATE CONSTRAINT component_unique IF NOT EXISTS
+FOR (c:Component) REQUIRE c.name IS UNIQUE;
+
+CREATE CONSTRAINT recall_unique IF NOT EXISTS
+FOR (r:Recall) REQUIRE r.campaign_no IS UNIQUE;
+
+// --- Índices de apoyo para lectura/filtrado ---
+CREATE INDEX vehicle_make IF NOT EXISTS FOR (v:Vehicle) ON (v.make);
+CREATE INDEX vehicle_model IF NOT EXISTS FOR (v:Vehicle) ON (v.model);
+CREATE INDEX vehicle_year  IF NOT EXISTS FOR (v:Vehicle) ON (v.year);
+
+CREATE INDEX component_name IF NOT EXISTS FOR (c:Component) ON (c.name);
+
+CREATE INDEX recall_date   IF NOT EXISTS FOR (r:Recall)   ON (r.date);
+
+MATCH (c:Component) RETURN c.name, c.recallsCount ORDER BY c.recallsCount DESC LIMIT 20;
+MATCH (v:Vehicle)   RETURN v.make, v.model, v.year, v.recallsCount ORDER BY v.recallsCount DESC LIMIT 20;
+
+// Marcar “top component” por número de recalls
+MATCH (r:Recall)-[:CONCERNS]->(c:Component)
+WITH c, count(*) AS n
+SET c.recallsCount = n;
+
+// Marcar “top vehicle cohort” por número de recalls
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)
+WITH v, count(r) AS n
+SET v.recallsCount = n;
+
+MATCH (c:Component)
+RETURN c.community AS comm, count(*) AS comps
+ORDER BY comps DESC LIMIT 10;
+
+CALL gds.louvain.write('veh_recall_comp', { writeProperty: 'community' })
+YIELD communityCount, modularity;
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CALL gds.version();
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CREATE INDEX vehicle_make IF NOT EXISTS FOR (v:Vehicle) ON (v.make);
+CREATE INDEX vehicle_model IF NOT EXISTS FOR (v:Vehicle) ON (v.model);
+CREATE INDEX vehicle_year  IF NOT EXISTS FOR (v:Vehicle) ON (v.year);
+
+// Conteos
+MATCH (v:Vehicle)  RETURN count(v) AS vehicles;
+MATCH (r:Recall)   RETURN count(r) AS recalls;
+MATCH (c:Component)RETURN count(c) AS components;
+
+// Muestra de relaciones
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+// Top componentes por #recalls
+MATCH (r:Recall)-[:CONCERNS]->(c:Component)
+RETURN c.name AS component, count(*) AS recalls
+ORDER BY recalls DESC LIMIT 15;
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_cleaned_good.csv' AS row
+WITH row, toInteger(row.year) AS y,
+     CASE WHEN row.recall_date <> '' THEN date(row.recall_date) END AS rdate
+MERGE (v:Vehicle {make: row.make, model: row.model, year: y})
+MERGE (c:Component {name: row.component})
+MERGE (r:Recall {campaign_no: row.campaign_no})
+  ON CREATE SET r.date=rdate, r.subject=row.subject, r.consequence=row.consequence
+  ON MATCH  SET r.date=coalesce(r.date,rdate), r.subject=coalesce(r.subject,row.subject), r.consequence=coalesce(r.consequence,row.consequence)
+MERGE (v)-[:AFFECTED_BY]->(r)
+MERGE (r)-[:CONCERNS]->(c);
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_cleaned_good.csv' AS row
+WITH row, toInteger(row.year) AS y,
+     CASE WHEN row.recall_date <> '' THEN date(row.recall_date) END AS rdate
+MERGE (v:Vehicle {make: row.make, model: row.model, year: y})
+MERGE (c:Component {name: row.component})
+MERGE (r:Recall {campaign_no: row.campaign_no})
+  ON CREATE SET r.date=rdate, r.subject=row.subject, r.consequence=row.consequence
+  ON MATCH  SET r.date=coalesce(r.date,rdate), r.subject=coalesce(r.subject,row.subject), r.consequence=coalesce(r.consequence,row.consequence)
+MERGE (v)-[:AFFECTED_BY]->(r)
+MERGE (r)-[:CONCERNS]->(c);
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_cleaned_good.csv' AS row
+WITH row, toInteger(row.year) AS y,
+     CASE WHEN row.recall_date <> '' THEN date(row.recall_date) END AS rdate
+MERGE (v:Vehicle {make: row.make, model: row.model, year: y})
+MERGE (c:Component {name: row.component})
+MERGE (r:Recall {campaign_no: row.campaign_no})
+  ON CREATE SET r.date=rdate, r.subject=row.subject, r.consequence=row.consequence
+  ON MATCH  SET r.date=coalesce(r.date,rdate), r.subject=coalesce(r.subject,row.subject), r.consequence=coalesce(r.consequence,row.consequence)
+MERGE (v)-[:AFFECTED_BY]->(r)
+MERGE (r)-[:CONCERNS]->(c);
+
+CREATE CONSTRAINT vehicle_unique  IF NOT EXISTS FOR (v:Vehicle)   REQUIRE (v.make, v.model, v.year) IS UNIQUE;
+CREATE CONSTRAINT component_unique IF NOT EXISTS FOR (c:Component) REQUIRE c.name IS UNIQUE;
+CREATE CONSTRAINT recall_unique    IF NOT EXISTS FOR (r:Recall)    REQUIRE r.campaign_no IS UNIQUE;
+
+MATCH (c:Component) RETURN c.name, c.recallsCount ORDER BY c.recallsCount DESC LIMIT 20;
+MATCH (v:Vehicle)   RETURN v.make, v.model, v.year, v.recallsCount ORDER BY v.recallsCount DESC LIMIT 20;
+
+// Marcar “top component” por número de recalls
+MATCH (r:Recall)-[:CONCERNS]->(c:Component)
+WITH c, count(*) AS n
+SET c.recallsCount = n;
+
+// Marcar “top vehicle cohort” por número de recalls
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)
+WITH v, count(r) AS n
+SET v.recallsCount = n;
+
+MATCH (c:Component)
+RETURN c.community AS comm, count(*) AS comps
+ORDER BY comps DESC LIMIT 10;
+
+CALL gds.louvain.write('veh_recall_comp', { writeProperty: 'community' })
+YIELD communityCount, modularity;
+
+CALL gds.degree.stream('veh_recall_comp')
+YIELD nodeId, score
+WITH gds.util.asNode(nodeId) AS n, score
+WHERE 'Component' IN labels(n)
+RETURN n.name AS component, score AS degree
+ORDER BY degree DESC LIMIT 20;
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CALL gds.graph.drop('veh_recall_comp', false);
+CALL gds.graph.project(
+  'veh_recall_comp',
+  ['Vehicle','Recall','Component'],
+  {
+    AFFECTED_BY: {type:'AFFECTED_BY', orientation:'UNDIRECTED'},
+    CONCERNS:    {type:'CONCERNS',    orientation:'UNDIRECTED'}
+  }
+);
+
+CREATE INDEX vehicle_make IF NOT EXISTS FOR (v:Vehicle) ON (v.make);
+CREATE INDEX vehicle_model IF NOT EXISTS FOR (v:Vehicle) ON (v.model);
+CREATE INDEX vehicle_year  IF NOT EXISTS FOR (v:Vehicle) ON (v.year);
+
+// Conteos
+MATCH (v:Vehicle)  RETURN count(v) AS vehicles;
+MATCH (r:Recall)   RETURN count(r) AS recalls;
+MATCH (c:Component)RETURN count(c) AS components;
+
+// Muestra de relaciones
+MATCH (v:Vehicle)-[:AFFECTED_BY]->(r:Recall)-[:CONCERNS]->(c:Component)
+RETURN v.make, v.model, v.year, r.campaign_no, c.name
+LIMIT 10;
+
+// Top componentes por #recalls
+MATCH (r:Recall)-[:CONCERNS]->(c:Component)
+RETURN c.name AS component, count(*) AS recalls
+ORDER BY recalls DESC LIMIT 15;
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_cleaned_good.csv' AS row
+WITH row, toInteger(row.year) AS y,
+     CASE WHEN row.recall_date <> '' THEN date(row.recall_date) END AS rdate
+MERGE (v:Vehicle {make: row.make, model: row.model, year: y})
+MERGE (c:Component {name: row.component})
+MERGE (r:Recall {campaign_no: row.campaign_no})
+  ON CREATE SET r.date=rdate, r.subject=row.subject, r.consequence=row.consequence
+  ON MATCH  SET r.date=coalesce(r.date,rdate), r.subject=coalesce(r.subject,row.subject), r.consequence=coalesce(r.consequence,row.consequence)
+MERGE (v)-[:AFFECTED_BY]->(r)
+MERGE (r)-[:CONCERNS]->(c);
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_cleaned.csv' AS row
+MERGE (v:Vehicle {make: row.MAKETXT, model: row.MODELTXT, year: toInteger(row.YEARTXT)})
+MERGE (c:Component {name: row.COMPNAME})
+MERGE (r:Recall {campaign_no: row.CAMPNO})
+  ON CREATE SET r.date = date(row.RCDATE),
+                r.subject = row.DESC_DEFECT,
+                r.consequence = row.CONSEQUENCE_DEFECT
+MERGE (v)-[:HAS_RECALL]->(r)
+MERGE (r)-[:TARGETS]->(c);
+
+LOAD CSV WITH HEADERS FROM 'file:recalls_by_campaign.csv' AS row
+MERGE (v:Vehicle {make: row.MAKETXT, model: row.MODELTXT, year: toInteger(row.YEARTXT)})
+MERGE (c:Component {name: row.COMPNAME})
+MERGE (r:Recall {campaign_no: row.CAMPNO})
+  ON CREATE SET r.date = date(row.RCDATE),
+                r.subject = row.DESC_DEFECT,
+                r.consequence = row.CONSEQUENCE_DEFECT
+MERGE (v)-[:HAS_RECALL]->(r)
+MERGE (r)-[:TARGETS]->(c);
+
+LOAD CSV WITH HEADERS FROM 'file:///recalls_by_campaign.csv' AS row
+MERGE (v:Vehicle {make: row.MAKETXT, model: row.MODELTXT, year: toInteger(row.YEARTXT)})
+MERGE (c:Component {name: row.COMPNAME})
+MERGE (r:Recall {campaign_no: row.CAMPNO})
+  ON CREATE SET r.date = date(row.RCDATE),
+                r.subject = row.DESC_DEFECT,
+                r.consequence = row.CONSEQUENCE_DEFECT
+MERGE (v)-[:HAS_RECALL]->(r)
+MERGE (r)-[:TARGETS]->(c);
+
+CREATE CONSTRAINT vehicle_unique  IF NOT EXISTS FOR (v:Vehicle)   REQUIRE (v.make, v.model, v.year) IS UNIQUE;
+CREATE CONSTRAINT component_unique IF NOT EXISTS FOR (c:Component) REQUIRE c.name IS UNIQUE;
+CREATE CONSTRAINT recall_unique    IF NOT EXISTS FOR (r:Recall)    REQUIRE r.campaign_no IS UNIQUE;
+
+SHOW DATABASES;
+
+SHOW USERS;
